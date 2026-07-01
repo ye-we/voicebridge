@@ -117,6 +117,20 @@ try {
 429 and 5xx responses are retried automatically with exponential backoff
 (configurable via `maxRetries`).
 
+### Timeouts
+
+Requests have no timeout by default. Set `timeoutMs` to abort a stalled request —
+a timed-out attempt is retried like a network failure (up to `maxRetries`), so a
+transient stall recovers on its own:
+
+```ts
+const client = createVoiceClient({
+  provider: "vapi",
+  apiKey: process.env.VAPI_API_KEY!,
+  timeoutMs: 10_000, // abort any request that takes longer than 10s
+});
+```
+
 ### Provider-specific extras
 
 Unified resources stay consistent, but providers can expose extras under

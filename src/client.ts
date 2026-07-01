@@ -52,6 +52,7 @@ export function createVoiceClient(config: VoiceClientConfig): VoiceClient {
     apiKey: cfg.apiKey,
     provider,
     ...(cfg.maxRetries !== undefined ? { maxRetries: cfg.maxRetries } : {}),
+    ...(cfg.timeoutMs !== undefined ? { timeoutMs: cfg.timeoutMs } : {}),
     ...(cfg.fetch ? { fetchImpl: cfg.fetch } : {}),
   });
 

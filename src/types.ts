@@ -19,6 +19,8 @@ export const voiceClientConfigSchema = z.object({
   baseUrl: z.string().url().optional(),
   /** Max automatic retries for 429 / 5xx responses. Default 2. */
   maxRetries: z.number().int().min(0).max(10).optional(),
+  /** Abort any request that takes longer than this many ms. Default: no timeout. */
+  timeoutMs: z.number().int().positive().optional(),
   /** Inject a custom fetch implementation (defaults to global fetch). */
   fetch: z.custom<typeof fetch>((v) => typeof v === "function").optional(),
 });

@@ -122,4 +122,44 @@ describe("createVoiceClient", () => {
       /No baseUrl configured/,
     );
   });
+
+  it("rejects a non-positive timeoutMs", () => {
+    expect(() =>
+      createVoiceClient({ provider: "vapi", apiKey: "key", timeoutMs: 0 }),
+    ).toThrow(ValidationError);
+  });
+
+  it("passes timeoutMs through to the transport", async () => {
+    // A fetch that only settles when aborted, proving the timeout reached it.
+    const hangingFetch = ((_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")),
+        );
+      })) as unknown as typeof fetch;
+
+    registerProvider("dummy", (ctx) => ({
+      name: "dummy",
+      agents: {
+        async list() {
+          // No .catch() here — let the timeout error propagate to the caller.
+          await ctx.http.get("/whatever");
+          return { data: [], hasMore: false, nextCursor: null, async *iterateAll() {} };
+        },
+      } as never,
+      calls: {} as never,
+      phoneNumbers: {} as never,
+    }));
+
+    const client = createVoiceClient({
+      provider: "dummy",
+      apiKey: "key",
+      baseUrl: "https://example.test",
+      timeoutMs: 15,
+      maxRetries: 0,
+      fetch: hangingFetch,
+    });
+
+    await expect(client.agents.list()).rejects.toThrow(/timed out after 15ms/);
+  });
 });

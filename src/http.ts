@@ -20,6 +20,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Skip retries for this call (e.g. non-idempotent edge cases). */
   noRetry?: boolean;
+  /** Abort this request after this many ms. Overrides the client-level timeout. */
+  timeoutMs?: number;
 }
 
 export interface HttpClientOptions {
@@ -32,6 +34,8 @@ export interface HttpClientOptions {
   maxRetries?: number;
   /** Base backoff in ms (doubled each attempt). Default 300ms. */
   backoffBaseMs?: number;
+  /** Abort a request after this many ms (per attempt). Default: no timeout. */
+  timeoutMs?: number;
 }
 
 const DEFAULT_MAX_RETRIES = 2;
@@ -45,6 +49,7 @@ export class HttpClient {
   private readonly fetchImpl: typeof fetch;
   private readonly maxRetries: number;
   private readonly backoffBaseMs: number;
+  private readonly timeoutMs?: number;
 
   constructor(options: HttpClientOptions) {
     const fetchImpl = options.fetchImpl ?? globalThis.fetch;
@@ -61,6 +66,7 @@ export class HttpClient {
     this.fetchImpl = fetchImpl;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_MS;
+    this.timeoutMs = options.timeoutMs;
   }
 
   get<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -98,18 +104,20 @@ export class HttpClient {
     }
 
     const maxAttempts = options.noRetry ? 1 : this.maxRetries + 1;
+    const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     let lastError: VoiceBridgeError | undefined;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let response: Response;
       try {
-        response = await this.fetchImpl(url, { method, headers, body: bodyInit });
+        response = await this.doFetch(url, { method, headers, body: bodyInit }, timeoutMs);
       } catch (cause) {
-        // Network-level failure (DNS, socket, etc.). Retry like a 5xx.
-        lastError = new ProviderError("Network request failed", {
-          provider: this.provider,
-          cause,
-        });
+        // Network-level failure (DNS, socket, timeout, etc.). Retry like a 5xx.
+        // A timeout is already a typed ProviderError — keep its message.
+        lastError =
+          cause instanceof VoiceBridgeError
+            ? cause
+            : new ProviderError("Network request failed", { provider: this.provider, cause });
         if (attempt < maxAttempts) {
           await sleep(this.backoffDelay(attempt));
           continue;
@@ -142,6 +150,40 @@ export class HttpClient {
 
     // Exhausted retries.
     throw lastError ?? new ProviderError("Request failed", { provider: this.provider });
+  }
+
+  /**
+   * Perform a single fetch, aborting it if `timeoutMs` elapses first. A timeout
+   * surfaces as a retryable `ProviderError` so the retry loop treats it like any
+   * other transient network failure.
+   */
+  private async doFetch(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number | undefined,
+  ): Promise<Response> {
+    if (timeoutMs === undefined) {
+      return this.fetchImpl(url, init);
+    }
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    try {
+      return await this.fetchImpl(url, { ...init, signal: controller.signal });
+    } catch (cause) {
+      if (timedOut) {
+        throw new ProviderError(`Request timed out after ${timeoutMs}ms`, {
+          provider: this.provider,
+          cause,
+        });
+      }
+      throw cause;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private buildUrl(path: string, query?: Record<string, QueryValue>): string {

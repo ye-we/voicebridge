@@ -1,6 +1,6 @@
 {
   "name": "@yewe/voicebridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One SDK for voice AI agents. Switch between Vapi, Retell and more — no vendor lock-in.",
   "license": "MIT",
   "author": "Yewe <khalid.yewe@gmail.com>",
@@ -23,6 +23,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {
